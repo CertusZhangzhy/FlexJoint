@@ -131,7 +131,7 @@ def joint_bond_libvirt_ceph(computer_string, computer_password, config_path='/et
                 run("virsh secret-undefine `virsh secret-list|awk NR==3|cut -d ' ' -f 2`")
                 run("virsh secret-define --file secret.xml")
                 uuid = run("cat UUID").strip()
-                key = run("cat client.cinder.key").strip()
+                key = run("cat client.%s.key" % (CINDER)).strip()
                 cmd = "virsh secret-set-value --secret "+uuid+" --base64 "+key
                 run(cmd)
             else:
