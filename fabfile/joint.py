@@ -10,12 +10,41 @@ import time
 
 from fabric.api import *
 from fabric.contrib import files
+from testbed.testbed import *
+
+#---------- pool name ----------#
+IMAGES = env.pools['images']
+VOLUMES = env.pools['volumes']
+VMS = env.pools['vms']
+
+# ---------- cient name ----------#
+GLANCE = env.clients['glance']
+CINDER = env.clients['cinder']
+keyring_of = lambda name:'ceph.client.{}.keyring'.format(name)
+
+pool_list = [IMAGES,VOLUMES,VMS]
+keyring_list = [keyring_of(GLANCE), keyring_of(CINDER)]
+key_file_list = ['client.{}.key'.format(CINDER),'secret.xml','UUID']
+
+joint_auth_string_glance = env.auth['glance']
+joint_auth_string_cinder = env.auth['cinder']
+
+cmd_update_glance = lambda section,key,value:"openstack-config --set /etc/glance/glance-api.conf %s %s %s" % (section, key, value)
+cmd_update_cinder = lambda section,key,value:"openstack-config --set /etc/cinder/cinder.conf %s %s %s" % (section, key, value)
+cmd_update_nova = lambda section,key,value:"openstack-config --set /etc/nova/nova.conf %s %s %s" % (section, key, value)
+
 
 def check_ceph(node_string, node_password):
     with settings(host_string = node_string, password = node_password, warn_only = True):
-        ret = run('ceph -v')
-        if ret.return_code == 127:
+        if run('ceph -v').return_code == 127:
             abort('Please install ceph on %s.' % (node_string.split('@')[1]))
+
+def check_client(node_string, node_password):
+    with settings(host_string = node_string, password = node_password, warn_only = True):
+        if run('ceph auth get-key client.' + CINDER).return_code == 0:
+            abort('client.' + CINDER + ' is already existed.')
+        if run('ceph auth get-key client.' + GLANCE).return_code == 0:
+            abort('client.' + glance + ' is already existed.')
 
 def transmit_file(src_string, src_password, dest_string, dest_password, file_name, dest_path):
 
@@ -31,30 +60,15 @@ def transmit_file(src_string, src_password, dest_string, dest_password, file_nam
         put(tmp_file, dest_path)
     local('rm -f %s' % tmp_file)
 
-pool_list = ['images','volumes','vms']
-keyring_list = ['ceph.client.glance.keyring','ceph.client.cinder.keyring']
-key_file_list = ['client.cinder.key','secret.xml','UUID']
-
-joint_auth_string_cinder = ("mon 'allow r' osd 'allow class-read object_prefix "
-                        "rbd_children, allow rwx pool=volumes, allow rwx pool=vms, "
-                        "allow rwx pool=images'")
-                        
-joint_auth_string_glance = ("mon 'allow r' osd 'allow class-read object_prefix "
-                        "rbd_children, allow rwx pool=images'")
-
-cmd_update_glance = lambda section,key,value:"openstack-config --set /etc/glance/glance-api.conf %s %s %s" % (section, key, value)
-cmd_update_cinder = lambda section,key,value:"openstack-config --set /etc/cinder/cinder.conf %s %s %s" % (section, key, value)
-cmd_update_nova = lambda section,key,value:"openstack-config --set /etc/nova/nova.conf %s %s %s" % (section, key, value)
-
 def gen_secret_xml_string(uuid):
     script = '''cat > secret.xml <<EOF
 <secret ephemeral='no' private='no'>
-  <uuid>%s</uuid>
+  <uuid>{uuid}</uuid>
   <usage type='ceph'>
-    <name>client.cinder secret</name>
+    <name>client.{cinder} secret</name>
   </usage>
 </secret>
-EOF''' % uuid
+EOF'''.format(uuid=uuid,cinder=CINDER)
     return script
 
 def backup_conf(file_name):
@@ -94,8 +108,8 @@ def joint_create_client(ceph_string, ceph_password, client_name, auth_string, ce
 def joint_generate_cinder_key(ceph_string, ceph_password, ceph_path='/etc/ceph'):
 
     with settings(host_string = ceph_string, password = ceph_password, warn_only = True):
-        file_name = ceph_path+"/"+"client.cinder.key"
-        cmd_string = 'ceph auth get-key client.cinder | tee %s' % (file_name)
+        file_name = ceph_path+"/"+"client.%s.key" % (CINDER)
+        cmd_string = 'ceph auth get-key client.%s | tee %s' % (CINDER, file_name)
         run(cmd_string)
 
 def joint_generate_secret_xml(ceph_string, ceph_password, ceph_path='/etc/ceph'):
@@ -113,7 +127,7 @@ def joint_bond_libvirt_ceph(computer_string, computer_password, config_path='/et
 
     with settings(host_string = computer_string, password = computer_password, warn_only = True):
         with cd(config_path):
-            if files.exists('client.cinder.key') and files.exists('secret.xml') and files.exists('UUID'):
+            if files.exists(key_file_list[0]) and files.exists(key_file_list[1]) and files.exists(key_file_list[2]):
                 run("virsh secret-undefine `virsh secret-list|awk NR==3|cut -d ' ' -f 2`")
                 run("virsh secret-define --file secret.xml")
                 uuid = run("cat UUID").strip()
@@ -135,10 +149,10 @@ def joint_update_glance_conf_icehouse(controller_string, controller_password, co
                 "/etc/glance/glance-api.conf")
         run("sed -i '0,/^\[DEFAULT\]/a rbd_store_chunk_size = 8' "
                 "/etc/glance/glance-api.conf")
-        run("sed -i '0,/^\[DEFAULT\]/a rbd_store_pool = images' "
-                "/etc/glance/glance-api.conf")
-        run("sed -i '0,/^\[DEFAULT\]/a rbd_store_user = glance' "
-                "/etc/glance/glance-api.conf")
+        run("sed -i '0,/^\[DEFAULT\]/a rbd_store_pool = {images}' "
+                "/etc/glance/glance-api.conf".format(IMAGES))
+        run("sed -i '0,/^\[DEFAULT\]/a rbd_store_user = {glance}' "
+                "/etc/glance/glance-api.conf").format(GLANCE)
         run("sed -i '0,/^\[DEFAULT\]/a default_store = rbd' "
                 "/etc/glance/glance-api.conf")
         
@@ -161,10 +175,10 @@ def joint_update_glance_conf_kilo(controller_string, controller_password, config
             "/etc/glance/glance-api.conf")
         run("sed -i '/^\[glance_store\]/a rbd_store_ceph_conf = \/etc\/ceph\/ceph.conf' "
             "/etc/glance/glance-api.conf")
-        run("sed -i '/^\[glance_store\]/a rbd_store_user = glance' "
-            "/etc/glance/glance-api.conf")
-        run("sed -i '/^\[glance_store\]/a rbd_store_pool = images' "
-            "/etc/glance/glance-api.conf")
+        run("sed -i '/^\[glance_store\]/a rbd_store_user = {glance}' "
+            "/etc/glance/glance-api.conf".format(GLANCE))
+        run("sed -i '/^\[glance_store\]/a rbd_store_pool = {images}' "
+            "/etc/glance/glance-api.conf".format(IMAGES))
         run("sed -i '/^\[glance_store\]/a stores=glance.store.rbd.Store,glance.store.http.Store' "
             "/etc/glance/glance-api.conf")
         run("sed -i '/^\[glance_store\]/a default_store = rbd' "
@@ -179,8 +193,8 @@ def joint_update_glance_conf_mitaka(controller_string, controller_password, conf
         backup_conf(conf)
         run(cmd_update_glance('glance_store', 'default_store', 'rbd'))
         run(cmd_update_glance('glance_store', 'stores', 'rbd'))
-        run(cmd_update_glance('glance_store', 'rbd_store_pool', 'images'))
-        run(cmd_update_glance('glance_store', 'rbd_store_user', 'glance'))
+        run(cmd_update_glance('glance_store', 'rbd_store_pool', IMAGES))
+        run(cmd_update_glance('glance_store', 'rbd_store_user', GLANCE))
         run(cmd_update_glance('glance_store', 'rbd_store_ceph_conf', r'/etc/ceph/ceph.conf'))
         run(cmd_update_glance('glance_store', 'rbd_store_chunk_size', '8'))
 
@@ -204,10 +218,10 @@ def joint_update_cinder_conf_icehouse(controller_string, controller_password, co
             "/etc/cinder/cinder.conf")
         run("sed -i '/^\[DEFAULT\]/a rbd_ceph_conf = \/etc\/ceph\/ceph.conf' "
             "/etc/cinder/cinder.conf")
-        run("sed -i '/^\[DEFAULT\]/a rbd_pool = volumes' "
-            "/etc/cinder/cinder.conf")
-        run("sed -i '/^\[DEFAULT\]/a rbd_user = cinder' "
-            "/etc/cinder/cinder.conf")
+        run("sed -i '/^\[DEFAULT\]/a rbd_pool = {volumes}' "
+            "/etc/cinder/cinder.conf".format(VOLUMES))
+        run("sed -i '/^\[DEFAULT\]/a rbd_user = {cinder}' "
+            "/etc/cinder/cinder.conf".format(CINDER))
         run("sed -i '/^\[DEFAULT\]/a volume_driver = cinder.volume.drivers.rbd.RBDDriver' "
             "/etc/cinder/cinder.conf")
     
@@ -231,10 +245,10 @@ def joint_update_cinder_conf_kilo(controller_string, controller_password, config
             "/etc/cinder/cinder.conf")
         run("sed -i '/^\[DEFAULT\]/a rbd_ceph_conf = \/etc\/ceph\/ceph.conf' "
             "/etc/cinder/cinder.conf")
-        run("sed -i '/^\[DEFAULT\]/a rbd_pool = volumes' "
-            "/etc/cinder/cinder.conf")
+        run("sed -i '/^\[DEFAULT\]/a rbd_pool = {volumes}' "
+            "/etc/cinder/cinder.conf".format(VOLUMES))
         run("sed -i '/^\[DEFAULT\]/a rbd_user = cinder' "
-            "/etc/cinder/cinder.conf")
+            "/etc/cinder/cinder.conf".format(CINDER))
         run("sed -i '/^\[DEFAULT\]/a volume_driver = cinder.volume.drivers.rbd.RBDDriver' "
             "/etc/cinder/cinder.conf")
 
@@ -248,8 +262,8 @@ def joint_update_cinder_conf_mitaka(controller_string, controller_password, conf
         backup_conf(conf)
         run(cmd_update_cinder('DEFAULT', 'enabled_backends', 'ceph'))
         run(cmd_update_cinder('ceph', 'volume_driver', 'cinder.volume.drivers.rbd.RBDDriver'))
-        run(cmd_update_cinder('ceph', 'rbd_pool', 'volumes'))
-        run(cmd_update_cinder('ceph', 'rbd_user', 'cinder'))
+        run(cmd_update_cinder('ceph', 'rbd_pool', VOLUMES))
+        run(cmd_update_cinder('ceph', 'rbd_user', CINDER))
         run(cmd_update_cinder('ceph', 'rbd_ceph_conf', r'/etc/ceph/ceph.conf'))
         run(cmd_update_cinder('ceph', 'rbd_cluster_name', 'ceph'))
         run(cmd_update_cinder('ceph', 'rbd_flatten_volume_from_snapshot', 'false'))
@@ -273,12 +287,12 @@ def joint_update_nova_conf_icehouse(computer_string, computer_password, config_p
         uuid=str(run('cat /etc/ceph/UUID')).strip()
         run("sed -i '/^\[DEFAULT\]/a rbd_secret_uuid = %s' "
             "/etc/nova/nova.conf" % uuid)
-        run("sed -i '/^\[DEFAULT\]/a rbd_user = cinder' "
-            "/etc/nova/nova.conf")
+        run("sed -i '/^\[DEFAULT\]/a rbd_user = {cinder}' "
+            "/etc/nova/nova.conf".format(CINDER))
         run("sed -i '/^\[DEFAULT\]/a libvirt_images_rbd_ceph_conf = \/etc\/ceph\/ceph.conf' "
             "/etc/nova/nova.conf")
-        run("sed -i '/^\[DEFAULT\]/a libvirt_images_rbd_pool = vms' "
-            "/etc/nova/nova.conf")
+        run("sed -i '/^\[DEFAULT\]/a libvirt_images_rbd_pool = {vms}' "
+            "/etc/nova/nova.conf".format(VMS))
         run("sed -i '/^\[DEFAULT\]/a libvirt_images_type = rbd' "
             "/etc/nova/nova.conf")
             
@@ -295,12 +309,12 @@ def joint_update_nova_conf_kilo(computer_string, computer_password, config_path=
         uuid=str(run('cat /etc/ceph/UUID')).strip()
         run("sed -i '/^\[libvirt\]/a rbd_secret_uuid = %s' "
             "/etc/nova/nova.conf" % uuid)
-        run("sed -i '/^\[libvirt\]/a rbd_user = cinder' "
-            "/etc/nova/nova.conf")
+        run("sed -i '/^\[libvirt\]/a rbd_user = {cinder}' "
+            "/etc/nova/nova.conf".format(CINDER))
         run("sed -i '/^\[libvirt\]/a images_rbd_ceph_conf = \/etc\/ceph\/ceph.conf' "
             "/etc/nova/nova.conf")
-        run("sed -i '/^\[libvirt\]/a images_rbd_pool = vms' "
-            "/etc/nova/nova.conf")
+        run("sed -i '/^\[libvirt\]/a images_rbd_pool = {vms}' "
+            "/etc/nova/nova.conf".format(VMS))
         run("sed -i '/^\[libvirt\]/a images_type = rbd' "
             "/etc/nova/nova.conf")
 
@@ -316,9 +330,9 @@ def joint_update_nova_conf_mitaka(computer_string, computer_password, config_pat
         backup_conf(conf)
         uuid=str(run('cat /etc/ceph/UUID')).strip()
         run(cmd_update_nova('libvirt', 'images_type', 'rbd'))
-        run(cmd_update_nova('libvirt', 'images_rbd_pool', 'vms'))
+        run(cmd_update_nova('libvirt', 'images_rbd_pool', VMS))
         run(cmd_update_nova('libvirt', 'images_rbd_ceph_conf', r'/etc/ceph/ceph.conf'))
-        run(cmd_update_nova('libvirt', 'rbd_user', 'cinder'))
+        run(cmd_update_nova('libvirt', 'rbd_user', CINDER))
         run(cmd_update_nova('libvirt', 'rbd_secret_uuid', uuid))
         run(cmd_update_nova('libvirt', 'disk_cachemodes', r'\\"network=writeback\\"'))
         #run(r'''openstack-config --set /etc/nova/nova.conf libvirt disk_cachemodes \\"network=writeback\\"''')<--This also works.
@@ -387,12 +401,12 @@ def joint_config_ceph(ceph_string, ceph_password, ceph_path='/etc/ceph'):
     #joint_create_pool(ceph_string, ceph_password, '0', 'volumes', '128')
     #joint_create_pool(ceph_string, ceph_password, '1', 'vms', '128')
 
-    joint_create_pool(ceph_string, ceph_password, 'images', '128')
-    joint_create_pool(ceph_string, ceph_password, 'volumes', '128')
-    joint_create_pool(ceph_string, ceph_password, 'vms', '128')
+    joint_create_pool(ceph_string, ceph_password, IMAGES, '128')
+    joint_create_pool(ceph_string, ceph_password, VOLUMES, '128')
+    joint_create_pool(ceph_string, ceph_password, VMS, '128')
 
-    joint_create_client(ceph_string, ceph_password, 'glance', joint_auth_string_glance, ceph_path)
-    joint_create_client(ceph_string, ceph_password, 'cinder', joint_auth_string_cinder, ceph_path)
+    joint_create_client(ceph_string, ceph_password, GLANCE, joint_auth_string_glance, ceph_path)
+    joint_create_client(ceph_string, ceph_password, CINDER, joint_auth_string_cinder, ceph_path)
     joint_generate_cinder_key(ceph_string, ceph_password, ceph_path)
     joint_generate_secret_xml(ceph_string, ceph_password, ceph_path)
 
@@ -428,8 +442,7 @@ def joint_distribute_conf_computer(ceph_string, ceph_password, computer_string, 
     下发UUID，client.cinder.key，client.cinder.keyring及secret.xml到计算节点，需要对每个计算节点执行
     """
     file_list = key_file_list
-    file_list.append('ceph.conf')
-    file_list.append('ceph.client.cinder.keyring')
+    file_list += ['ceph.conf',keyring_of(CINDER)]
     for file_name in file_list:
         tmp_file = '/etc/ceph/'+file_name
         transmit_file(ceph_string, ceph_password, computer_string, computer_password, tmp_file, '/etc/ceph')

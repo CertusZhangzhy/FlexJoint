@@ -1,28 +1,44 @@
 from fabric.api import env
 
 # hosts info
-admin = 'root@172.16.33.11'   # a ceph node with ceph.client.admin.keyring.
-controller1 = 'root@10.120.0.5'
-controller2 = 'root@10.120.0.6'
-controller3 = 'root@10.120.0.9'
-computer1 = 'root@10.120.0.7'
-computer2 = 'root@10.120.0.8'
+admin = 'root@172.16.182.124'   # a ceph node with ceph.client.admin.keyring.
+controller1 = 'root@172.16.182.124'
+computer1 = 'root@172.16.182.124'
 
 #icehouse,kilo,mitaka
 env.openstack_version = 'mitaka'
 
 env.roledefs = {
                 'admin': [admin],
-                'controllers' : [controller1,controller2,controller3],
-                'computers' : [computer1,computer2],
+                'controllers' : [controller1],
+                'computers' : [computer1],
                 }
 
 # password of each host
 env.passwords = {
-                admin:'certus_0418',
+                admin:'123456',
                 controller1:'123456',
-                controller2:'123456',
-                controller3:'123456',
                 computer1:'123456',
-                computer2:'123456',
                 }
+
+# client name in ceph
+env.clients = {
+              'glance': 'glance_test',
+              'cinder': 'cinder_test',
+              }
+
+# pool name in ceph
+env.pools = {
+            'images': 'images_test',
+            'volumes': 'volumes_test',
+            'vms': 'vms_test',
+            }
+
+# auth string in ceph
+env.auth = {
+           'glance': ("mon 'allow r' osd 'allow class-read object_prefix "
+                      "rbd_children, allow rwx pool={images}'".format(images=env.pools['images'])),
+           'cinder': ("mon 'allow r' "
+		      "osd 'allow class-read object_prefix rbd_children, "
+		      "allow rwx pool={images}, allow rwx pool={volumes}, allow rwx pool={vms}'".format(images=env.pools['images'],volumes=env.pools['volumes'],vms=env.pools['vms'])),
+           }

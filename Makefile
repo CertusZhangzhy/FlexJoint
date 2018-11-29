@@ -1,11 +1,11 @@
 SHELL=bash
 SRC := $(shell pwd)
-VERSION ?= 1.0
+VERSION ?= 1.1
 TGZ = build.tar.gz
 SPEC = FlexJoint.spec
 BUILD_PRODUCT_TGZ=$(SRC)/$(TGZ)
 
-RPM_REVISION ?= build2
+RPM_REVISION ?= build1
 RPMBUILD=$(SRC)/rpmbuild
 
 rpm:
