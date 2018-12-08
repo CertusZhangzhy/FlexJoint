@@ -192,6 +192,7 @@ def joint_update_glance_conf_mitaka(controller_string, controller_password, conf
         conf = config_path+'/glance-api.conf'
         backup_conf(conf)
         run(cmd_update_glance('glance_store', 'default_store', 'rbd'))
+        run(cmd_update_glance('glance_store', 'show_image_direct_url', 'True'))
         run(cmd_update_glance('glance_store', 'stores', 'rbd'))
         run(cmd_update_glance('glance_store', 'rbd_store_pool', IMAGES))
         run(cmd_update_glance('glance_store', 'rbd_store_user', GLANCE))
