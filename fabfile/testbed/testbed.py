@@ -35,9 +35,10 @@ env.pools = {
             }
 
 # auth string in ceph
+# add authority(allow rwx pool={vms}) for FLEXSTACK-864
 env.auth = {
            'glance': ("mon 'allow r' osd 'allow class-read object_prefix "
-                      "rbd_children, allow rwx pool={images}'".format(images=env.pools['images'])),
+                      "rbd_children, allow rwx pool={images}, allow rwx pool={vms}'".format(images=env.pools['images'],vms=env.pools['vms'])),
            'cinder': ("mon 'allow r' "
 		      "osd 'allow class-read object_prefix rbd_children, "
 		      "allow rwx pool={images}, allow rwx pool={volumes}, allow rwx pool={vms}'".format(images=env.pools['images'],volumes=env.pools['volumes'],vms=env.pools['vms'])),
