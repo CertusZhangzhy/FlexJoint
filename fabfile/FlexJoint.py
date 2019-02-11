@@ -60,9 +60,11 @@ if __name__=="__main__":
     log_config()
     VERSION = env.openstack_version
     CEPH_DIR = '/etc/ceph'
+    OPENSTACK_CONFIG_CMD = 'openstack-config'
     check_client(get_ceph_admin()[0], get_ceph_admin()[1])
     for node in get_control_hosts()+get_compute_hosts():
         check_ceph(node[0], node[1])
+        check_cmd(node[0], node[1], OPENSTACK_CONFIG_CMD)
     joint_config_ceph(get_ceph_admin()[0], get_ceph_admin()[1], CEPH_DIR)
     for controller in get_control_hosts():
         joint_distribute_conf_controller(get_ceph_admin()[0], get_ceph_admin()[1], controller[0], controller[1])

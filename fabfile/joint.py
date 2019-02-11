@@ -33,6 +33,12 @@ cmd_update_glance = lambda section,key,value:"openstack-config --set /etc/glance
 cmd_update_cinder = lambda section,key,value:"openstack-config --set /etc/cinder/cinder.conf %s %s %s" % (section, key, value)
 cmd_update_nova = lambda section,key,value:"openstack-config --set /etc/nova/nova.conf %s %s %s" % (section, key, value)
 
+def check_cmd(node_string, node_password, cmd):
+    with settings(host_string = node_string, password = node_password, warn_only = True):
+        if not run('which {}'.format(cmd)).return_code == 0:
+            warn("Command '{}' is not available on {}.".format(cmd, node_string.split('@')[1]))
+            return -1
+    return 0
 
 def check_ceph(node_string, node_password):
     with settings(host_string = node_string, password = node_password, warn_only = True):
@@ -42,9 +48,9 @@ def check_ceph(node_string, node_password):
 def check_client(node_string, node_password):
     with settings(host_string = node_string, password = node_password, warn_only = True):
         if run('ceph auth get-key client.' + CINDER).return_code == 0:
-            abort('client.' + CINDER + ' is already existed.')
+            abort('client.' + CINDER + ' is already existed, you should delete it first.')
         if run('ceph auth get-key client.' + GLANCE).return_code == 0:
-            abort('client.' + glance + ' is already existed.')
+            abort('client.' + GLANCE + ' is already existed, you should delete it first.')
 
 def transmit_file(src_string, src_password, dest_string, dest_password, file_name, dest_path):
 
