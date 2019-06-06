@@ -4,6 +4,25 @@
 from joint import *
 from testbed.testbed import *
 
+LOG_FILE = './FlexJoint.log'
+
+# redirect stdout to file and itself.
+class Logger(object):
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, 'w')
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+    def isatty(self):
+        return self.terminal.isatty()
+    def flush(self):
+        self.terminal.flush()
+
+def log_config():
+    
+    sys.stdout = Logger(LOG_FILE)
+
 def get_control_hosts():
     result = []
     hosts = env.roledefs['controllers']
@@ -37,19 +56,20 @@ def add_computer(computer_string, computer_password):
     joint_add_computer(admin_string, admin_password, computer_string, computer_password, VERSION)
 
 if __name__=="__main__":
+
+    log_config()
     VERSION = env.openstack_version
     CEPH_DIR = '/etc/ceph'
+    OPENSTACK_CONFIG_CMD = 'openstack-config'
+    check_client(get_ceph_admin()[0], get_ceph_admin()[1])
     for node in get_control_hosts()+get_compute_hosts():
         check_ceph(node[0], node[1])
-        #with settings(host_string = node[0], password = node[1], warn_only = True):
-        #    ret = run('ceph -v')
-        #    if ret.return_code == 127:
-        #        abort('Please install ceph.')
+        check_cmd(node[0], node[1], OPENSTACK_CONFIG_CMD)
     joint_config_ceph(get_ceph_admin()[0], get_ceph_admin()[1], CEPH_DIR)
-    #for controller in get_control_hosts():
-    #    joint_distribute_conf_controller(get_ceph_admin()[0], get_ceph_admin()[1], controller[0], controller[1])
-    #    joint_config_controller(controller[0], controller[1], VERSION)
-    #for computer in get_compute_hosts():
-    #    joint_distribute_conf_computer(get_ceph_admin()[0], get_ceph_admin()[1], computer[0], computer[1])
-    #    joint_config_computer(computer[0],computer[1],VERSION)
+    for controller in get_control_hosts():
+        joint_distribute_conf_controller(get_ceph_admin()[0], get_ceph_admin()[1], controller[0], controller[1])
+        joint_config_controller(controller[0], controller[1], VERSION)
+    for computer in get_compute_hosts():
+        joint_distribute_conf_computer(get_ceph_admin()[0], get_ceph_admin()[1], computer[0], computer[1])
+        joint_config_computer(computer[0],computer[1],VERSION)
     sys.exit(0)
